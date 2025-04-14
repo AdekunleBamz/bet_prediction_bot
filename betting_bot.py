@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Constants
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
-MAX_PREDICTIONS_PER_DAY = 30
+MAX_PREDICTIONS_PER_DAY = 15
 
 # API-SPORTS Configuration
 RAPID_API_KEY = os.getenv('RAPID_API_KEY')
@@ -168,120 +168,41 @@ class MLPredictor:
             n_jobs=-1
         )
         self.scalers[pred_type] = StandardScaler()
+        
+        # Initialize scaler with some default data
+        if self.sport == 'football':
+            default_data = np.array([
+                [2.0, 2.0, 1.5, 1.2, 5.5, 4.5, 1.1],  # Default features for football
+                [1.8, 2.2, 1.3, 1.4, 5.0, 5.0, 1.2],
+                [2.1, 1.9, 1.6, 1.1, 6.0, 4.0, 1.0]
+            ])
+        else:  # basketball
+            default_data = np.array([
+                [2.0, 2.0, 105.5, 102.3, 26.5, 25.8],  # Default features for basketball
+                [1.8, 2.2, 108.0, 100.0, 27.0, 25.0],
+                [2.1, 1.9, 103.0, 104.5, 26.0, 26.5]
+            ])
+        
+        self.scalers[pred_type].fit(default_data)
+        # Train model with some default outcomes (balanced classes)
+        default_outcomes = np.array([0, 1, 0])  # Example outcomes
+        self.models[pred_type].fit(default_data, default_outcomes)
+        
         logger.info(f"Created new {self.sport} {pred_type} model")
 
     def prepare_features(self, match_data: Dict, pred_type: str) -> np.ndarray:
         """Extract and prepare features from match data for specific prediction type"""
         try:
-            # Base features
-            home_odds = float(match_data.get('home_odds', 2.0))
-            away_odds = float(match_data.get('away_odds', 2.0))
+            # Base features for all predictions
+            features = [
+                float(match_data.get('home_odds', 2.0)),
+                float(match_data.get('away_odds', 2.0)),
+                float(match_data.get('home_form', 0.5)),  # Recent form (0-1)
+                float(match_data.get('away_form', 0.5)),  # Recent form (0-1)
+                float(match_data.get('h2h_advantage', 0.5)),  # Head-to-head advantage (0-1)
+                float(match_data.get('league_position_diff', 0.0))  # League position difference
+            ]
             
-            # Get additional features with default values
-            home_goals_avg = float(match_data.get('home_goals_scored_avg', 1.5))
-            away_goals_avg = float(match_data.get('away_goals_scored_avg', 1.2))
-            home_corners_avg = float(match_data.get('home_corners_avg', 5.5))
-            away_corners_avg = float(match_data.get('away_corners_avg', 4.5))
-            first_half_goals_avg = float(match_data.get('first_half_goals_avg', 1.1))
-            home_points_avg = float(match_data.get('home_points_avg', 105.5))
-            away_points_avg = float(match_data.get('away_points_avg', 102.3))
-            home_first_quarter_avg = float(match_data.get('home_first_quarter_avg', 26.5))
-            away_first_quarter_avg = float(match_data.get('away_first_quarter_avg', 25.8))
-            home_first_half_avg = float(match_data.get('home_first_half_avg', 52.5))
-            away_first_half_avg = float(match_data.get('away_first_half_avg', 51.2))
-
-            features = []  # Initialize features list
-
-            # Prepare features based on prediction type
-            if self.sport == 'football':
-                if pred_type in ['match_result', 'double_chance', 'draw_no_bet']:
-                    features = [
-                        home_odds, away_odds,
-                        1/home_odds, 1/away_odds,
-                        home_goals_avg, away_goals_avg
-                    ]
-                elif pred_type in ['btts', 'both_teams_score_first_half']:
-                    features = [
-                        home_odds, away_odds,
-                        home_goals_avg, away_goals_avg,
-                        home_goals_avg * away_goals_avg
-                    ]
-                elif pred_type.startswith('over_under') or pred_type.startswith('exact_goals'):
-                    features = [
-                        home_odds, away_odds,
-                        home_goals_avg, away_goals_avg,
-                        home_goals_avg + away_goals_avg
-                    ]
-                elif pred_type.startswith('first_half'):
-                    features = [
-                        home_odds, away_odds,
-                        first_half_goals_avg,
-                        home_goals_avg/2, away_goals_avg/2
-                    ]
-                elif pred_type in ['first_team_score', 'home_team_over_1_5', 'away_team_over_1_5']:
-                    features = [
-                        home_odds, away_odds,
-                        home_goals_avg, away_goals_avg
-                    ]
-                elif pred_type in ['home_win_both_halves', 'away_win_both_halves', 
-                                 'win_to_nil_home', 'win_to_nil_away',
-                                 'home_score_both_halves', 'away_score_both_halves']:
-                    features = [
-                        home_odds, away_odds,
-                        home_goals_avg, away_goals_avg,
-                        first_half_goals_avg
-                    ]
-            else:  # basketball
-                if pred_type in ['match_winner', 'first_quarter_winner', 'first_half_winner']:
-                    features = [
-                        home_odds, away_odds,
-                        1/home_odds, 1/away_odds,
-                        home_points_avg, away_points_avg
-                    ]
-                elif pred_type in ['total_points_over_under', 'first_quarter_total', 'first_half_total']:
-                    features = [
-                        home_odds, away_odds,
-                        home_points_avg, away_points_avg,
-                        home_points_avg + away_points_avg
-                    ]
-                elif pred_type == 'point_spread':
-                    features = [
-                        home_odds, away_odds,
-                        home_points_avg, away_points_avg,
-                        home_points_avg - away_points_avg
-                    ]
-                elif pred_type in ['home_team_total_over', 'away_team_total_over']:
-                    features = [
-                        home_odds, away_odds,
-                        home_points_avg, away_points_avg
-                    ]
-                elif pred_type in ['winning_margin_1_10', 'winning_margin_11_plus']:
-                    features = [
-                        home_odds, away_odds,
-                        home_points_avg, away_points_avg,
-                        abs(home_points_avg - away_points_avg)
-                    ]
-                elif pred_type in ['race_to_20_points', 'first_to_score', 'last_to_score']:
-                    features = [
-                        home_odds, away_odds,
-                        home_first_quarter_avg, away_first_quarter_avg
-                    ]
-                elif pred_type in ['highest_scoring_half', 'team_highest_scoring_quarter']:
-                    features = [
-                        home_odds, away_odds,
-                        home_first_half_avg, away_first_half_avg,
-                        home_first_quarter_avg, away_first_quarter_avg
-                    ]
-                elif pred_type == 'will_be_overtime':
-                    features = [
-                        home_odds, away_odds,
-                        abs(home_points_avg - away_points_avg),
-                        min(home_points_avg, away_points_avg)
-                    ]
-
-            if not features:  # If no features were set, use default
-                features = [home_odds, away_odds]
-
             return np.array(features).reshape(1, -1)
             
         except Exception as e:
@@ -648,6 +569,15 @@ class BettingBot:
                 if prediction:
                     all_predictions.append(prediction)
 
+            if not all_predictions:
+                logger.info("No matches found for today. Waiting for next update at midnight UTC.")
+                next_midnight = (datetime.now(pytz.UTC) + timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                wait_seconds = (next_midnight - datetime.now(pytz.UTC)).total_seconds()
+                await asyncio.sleep(wait_seconds)
+                return
+
             # Sort predictions by confidence
             all_predictions.sort(
                 key=lambda x: max(pred['confidence'] for pred in x['predictions'].values()),
@@ -655,88 +585,83 @@ class BettingBot:
             )
             selected_predictions = all_predictions[:MAX_PREDICTIONS_PER_DAY]
 
-            if selected_predictions:
-                current_date = datetime.now().strftime('%Y-%m-%d')
-                messages = []
-                current_message = f"🎯 Premium Tips {current_date}\n\n"
+            current_date = datetime.now().strftime('%Y-%m-%d')
+            messages = []
+            current_message = (
+                f"🎯 Premium Tips for {current_date}\n\n"
+                f"💫 Top {MAX_PREDICTIONS_PER_DAY} Predictions Today\n\n"
+            )
+            
+            for idx, pred in enumerate(selected_predictions, 1):
+                # Sport-specific emoji
+                sport_emoji = "⚽️" if pred['sport'] == 'football' else "🏀"
                 
-                for idx, pred in enumerate(selected_predictions, 1):
-                    # Compact match header with emojis based on sport
-                    sport_emoji = "⚽️" if pred['sport'] == 'football' else "🏀"
-                    match_message = f"{idx}. {sport_emoji} {pred['league']}\n"
-                    match_message += f"{pred['home_team']} v {pred['away_team']} "
-                    match_message += f"({pred['time'].strftime('%H:%M')})\n"
-                    
-                    # Sort predictions by confidence and format them compactly
-                    sorted_predictions = sorted(
-                        pred['predictions'].items(),
-                        key=lambda x: x[1]['confidence'],
-                        reverse=True
-                    )
-                    
-                    # Group predictions by confidence level
-                    high_conf = []  # 80%+
-                    med_conf = []   # 65-79%
-                    low_conf = []   # 55-64%
-                    
-                    for market, market_pred in sorted_predictions:
+                # Sort predictions by confidence
+                sorted_predictions = sorted(
+                    pred['predictions'].items(),
+                    key=lambda x: x[1]['confidence'],
+                    reverse=True
+                )
+                
+                # Format predictions with percentages
+                predictions_list = []
+                for market, market_pred in sorted_predictions:
+                    if market_pred['confidence'] * 100 >= 55:  # Only show predictions with >55% confidence
                         confidence_pct = market_pred['confidence'] * 100
-                        market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
-                        pred_str = f"{market_name}: {market_pred['prediction']}"
+                        market_name = (FOOTBALL_MARKETS.get(market, '') 
+                                     if pred['sport'] == 'football' 
+                                     else BASKETBALL_MARKETS.get(market, ''))
+                        pred_str = f"• {market_name}: {market_pred['prediction']}"
                         if 'odds' in market_pred:
                             pred_str += f" @{market_pred['odds']}"
                         pred_str += f" ({confidence_pct:.1f}%)"
-                        
-                        if confidence_pct >= 80:
-                            high_conf.append(pred_str)
-                        elif confidence_pct >= 65:
-                            med_conf.append(pred_str)
-                        elif confidence_pct >= 55:
-                            low_conf.append(pred_str)
-                    
-                    # Format predictions with emojis and confidence levels
-                    if high_conf:
-                        match_message += "🔥 HIGH CONFIDENCE:\n" + "\n".join(f"• {p}" for p in high_conf) + "\n"
-                    if med_conf:
-                        match_message += "✅ MEDIUM CONFIDENCE:\n" + "\n".join(f"• {p}" for p in med_conf) + "\n"
-                    if low_conf:
-                        match_message += "⚠️ LOW CONFIDENCE:\n" + "\n".join(f"• {p}" for p in low_conf) + "\n"
-                    
-                    match_message += "\n"
-                    
-                    # Store prediction for later result checking
-                    self.predictions[str(pred['match_id'])] = pred
+                        predictions_list.append(pred_str)
+                
+                if predictions_list:
+                    match_message = (
+                        f"{idx}. {sport_emoji} {pred['league']}\n"
+                        f"🏟 {pred['home_team']} vs {pred['away_team']}\n"
+                        f"⏰ {pred['time'].strftime('%H:%M')} UTC\n\n"
+                        f"{chr(10).join(predictions_list)}\n\n"
+                        f"〰️〰️〰️〰️〰️〰️〰️〰️〰️〰️\n\n"
+                    )
                     
                     if len(current_message + match_message) > 4000:
                         messages.append(current_message)
                         current_message = match_message
                     else:
                         current_message += match_message
-                
-                # Add compact footer
-                footer = "\n💡 Key Betting Markets:\n"
-                footer += "1X2: 1-Home Win, X-Draw, 2-Away Win\n"
-                footer += "O/U: Over/Under Goals/Points | BTTS: Both Teams To Score\n"
-                footer += "DNB: Draw No Bet | HDP: Handicap | CS: Correct Score\n"
-                footer += "DC: Double Chance (1X/X2/12) | 1H: First Half\n"
-                footer += "\n📱 @bamzz_cryptoalpha | ⚠️ Stake 1-2% per tip"
-                
-                if len(current_message + footer) <= 4000:
-                    current_message += footer
-                    messages.append(current_message)
-                else:
-                    messages.append(current_message)
-                    messages.append(footer)
-                
-                # Send all messages
-                for message in messages:
-                    success = await self.send_message_with_retry(message)
-                    if not success:
-                        logger.error("Failed to send predictions message")
-                        break
-                    await asyncio.sleep(1)
+            
+            # Add footer with market explanations
+            footer = (
+                "💡 Key Betting Markets:\n"
+                "• 1X2: 1-Home Win, X-Draw, 2-Away Win\n"
+                "• O/U: Over/Under Goals/Points\n"
+                "• BTTS: Both Teams To Score\n"
+                "• DNB: Draw No Bet\n"
+                "• HDP: Handicap\n"
+                "• CS: Correct Score\n"
+                "• DC: Double Chance (1X/X2/12)\n"
+                "• 1H: First Half\n\n"
+                "📱 @bamzz_cryptoalpha\n"
+                "⚠️ Stake 1-2% per tip\n"
+                "🔄 Next update: 00:00 UTC"
+            )
+            
+            if len(current_message + footer) <= 4000:
+                current_message += footer
+                messages.append(current_message)
             else:
-                logger.info("No matches found for today")
+                messages.append(current_message)
+                messages.append(footer)
+            
+            # Send all messages
+            for message in messages:
+                success = await self.send_message_with_retry(message)
+                if not success:
+                    logger.error("Failed to send predictions message")
+                    break
+                await asyncio.sleep(1)
 
         except Exception as e:
             logger.error(f"Error making predictions: {e}")
