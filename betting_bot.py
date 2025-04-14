@@ -393,15 +393,27 @@ class BettingBot:
             home_odds = float(match_odds[0]['odd'])
             away_odds = float(match_odds[1]['odd'])
 
-            # Prepare match data for ML prediction
+            # Get historical stats (placeholder values for now)
+            home_goals_avg = 1.5  # This should come from historical data
+            away_goals_avg = 1.2
+            home_corners_avg = 5.5
+            away_corners_avg = 4.5
+            first_half_goals_avg = 1.1
+
+            # Prepare base match data
             match_data = {
                 'home_odds': home_odds,
-                'away_odds': away_odds
+                'away_odds': away_odds,
+                'home_goals_scored_avg': home_goals_avg,
+                'away_goals_scored_avg': away_goals_avg,
+                'home_corners_avg': home_corners_avg,
+                'away_corners_avg': away_corners_avg,
+                'first_half_goals_avg': first_half_goals_avg
             }
 
-            # Get ML prediction
-            ml_prediction = self.football_predictor.predict(match_data)
-            if not ml_prediction:
+            # Get ML predictions for all markets
+            predictions = self.football_predictor.predict(match_data)
+            if not predictions:
                 return None
 
             prediction = {
@@ -411,9 +423,9 @@ class BettingBot:
                 'away_team': odds['fixture']['awayTeam'],
                 'league': odds['league']['name'],
                 'time': datetime.fromtimestamp(odds['fixture']['timestamp']),
-                'prediction': ml_prediction['prediction'],
-                'confidence': ml_prediction['confidence'],
-                'ml_probabilities': ml_prediction['probabilities']
+                'predictions': predictions,
+                'home_odds': home_odds,
+                'away_odds': away_odds
             }
             
             return prediction
@@ -424,15 +436,29 @@ class BettingBot:
     async def analyze_basketball_game(self, game: Dict) -> Dict:
         """Analyze basketball game using ML model"""
         try:
-            # For demonstration, using placeholder odds (you should fetch real odds)
+            # Get odds (placeholder values for now)
+            home_odds = 1.95
+            away_odds = 1.95
+
+            # Get historical stats (placeholder values for now)
+            home_points_avg = 105.5
+            away_points_avg = 102.3
+            home_first_quarter_avg = 26.5
+            away_first_quarter_avg = 25.8
+
+            # Prepare match data
             match_data = {
-                'home_odds': 1.95,  # placeholder
-                'away_odds': 1.95   # placeholder
+                'home_odds': home_odds,
+                'away_odds': away_odds,
+                'home_points_avg': home_points_avg,
+                'away_points_avg': away_points_avg,
+                'home_first_quarter_avg': home_first_quarter_avg,
+                'away_first_quarter_avg': away_first_quarter_avg
             }
 
-            # Get ML prediction
-            ml_prediction = self.basketball_predictor.predict(match_data)
-            if not ml_prediction:
+            # Get ML predictions for all markets
+            predictions = self.basketball_predictor.predict(match_data)
+            if not predictions:
                 return None
 
             prediction = {
@@ -442,9 +468,9 @@ class BettingBot:
                 'away_team': game['teams']['away']['name'],
                 'league': game['league']['name'],
                 'time': datetime.fromisoformat(game['date'].replace('Z', '+00:00')),
-                'prediction': ml_prediction['prediction'],
-                'confidence': ml_prediction['confidence'],
-                'ml_probabilities': ml_prediction['probabilities']
+                'predictions': predictions,
+                'home_odds': home_odds,
+                'away_odds': away_odds
             }
             
             return prediction
