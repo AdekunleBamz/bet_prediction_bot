@@ -632,18 +632,9 @@ class BettingBot:
                     else:
                         current_message += match_message
             
-            # Add footer with market explanations
+            # Add footer with minimal information
             footer = (
-                "💡 Key Betting Markets:\n"
-                "• 1X2: 1-Home Win, X-Draw, 2-Away Win\n"
-                "• O/U: Over/Under Goals/Points\n"
-                "• BTTS: Both Teams To Score\n"
-                "• DNB: Draw No Bet\n"
-                "• HDP: Handicap\n"
-                "• CS: Correct Score\n"
-                "• DC: Double Chance (1X/X2/12)\n"
-                "• 1H: First Half\n\n"
-                "📱 @bamzz_cryptoalpha\n"
+                "\n📱 @bamzz_cryptoalpha\n"
                 "⚠️ Stake 1-2% per tip\n"
                 "🔄 Next update: 00:00 UTC"
             )
