@@ -58,6 +58,52 @@ API_RATE_LIMIT_DELAY = 3  # Seconds between API calls
 MAX_RETRIES = 5
 RETRY_DELAY = 60  # Seconds to wait after hitting rate limit
 
+# Updated betting markets with 1xBet options
+FOOTBALL_MARKETS = {
+    'match_result': '1X2',
+    'first_half_result': '1H 1X2',
+    'btts': 'BTTS',
+    'over_under_2_5': 'O/U 2.5',
+    'over_under_1_5': 'O/U 1.5',
+    'over_under_3_5': 'O/U 3.5',
+    'first_half_over_under_1_5': '1H O/U 1.5',
+    'double_chance': 'DC',
+    'draw_no_bet': 'DNB',
+    'both_teams_score_first_half': '1H BTTS',
+    'first_team_score': '1st Goal',
+    'home_team_over_1_5': 'Home O1.5',
+    'away_team_over_1_5': 'Away O1.5',
+    'home_win_both_halves': 'Home Win BH',
+    'away_win_both_halves': 'Away Win BH',
+    'win_to_nil_home': 'Home WTN',
+    'win_to_nil_away': 'Away WTN',
+    'home_score_both_halves': 'Home SBH',
+    'away_score_both_halves': 'Away SBH',
+    'exact_goals_1_2': '1-2 Goals',
+    'exact_goals_2_3': '2-3 Goals',
+    'exact_goals_3_4': '3-4 Goals'
+}
+
+BASKETBALL_MARKETS = {
+    'match_winner': 'ML',
+    'total_points_over_under': 'O/U',
+    'first_quarter_winner': '1Q ML',
+    'first_half_winner': '1H ML',
+    'point_spread': 'Spread',
+    'first_quarter_total': '1Q O/U',
+    'first_half_total': '1H O/U',
+    'home_team_total_over': 'Home O',
+    'away_team_total_over': 'Away O',
+    'winning_margin_1_10': 'Win 1-10',
+    'winning_margin_11_plus': 'Win 11+',
+    'race_to_20_points': 'Race 20',
+    'highest_scoring_half': 'High Half',
+    'team_highest_scoring_quarter': 'Team High Q',
+    'will_be_overtime': 'OT',
+    'first_to_score': '1st Score',
+    'last_to_score': 'Last Score'
+}
+
 class MLPredictor:
     def __init__(self, sport: str):
         self.sport = sport
@@ -67,19 +113,47 @@ class MLPredictor:
         # Define prediction types for each sport
         self.football_predictions = [
             'match_result',
-            'btts',  # Both Teams To Score
-            'over_under_2_5',
             'first_half_result',
+            'btts',
+            'over_under_2_5',
+            'over_under_1_5',
+            'over_under_3_5',
+            'first_half_over_under_1_5',
+            'double_chance',
+            'draw_no_bet',
+            'both_teams_score_first_half',
             'first_team_score',
-            'total_corners_over_9_5'
+            'home_team_over_1_5',
+            'away_team_over_1_5',
+            'home_win_both_halves',
+            'away_win_both_halves',
+            'win_to_nil_home',
+            'win_to_nil_away',
+            'home_score_both_halves',
+            'away_score_both_halves',
+            'exact_goals_1_2',
+            'exact_goals_2_3',
+            'exact_goals_3_4'
         ]
         
         self.basketball_predictions = [
             'match_winner',
-            'total_points_over_200',
+            'total_points_over_under',
             'first_quarter_winner',
-            'point_spread_home',
-            'first_half_winner'
+            'first_half_winner',
+            'point_spread',
+            'first_quarter_total',
+            'first_half_total',
+            'home_team_total_over',
+            'away_team_total_over',
+            'winning_margin_1_10',
+            'winning_margin_11_plus',
+            'race_to_20_points',
+            'highest_scoring_half',
+            'team_highest_scoring_quarter',
+            'will_be_overtime',
+            'first_to_score',
+            'last_to_score'
         ]
         
         self.load_or_create_models()
@@ -570,7 +644,7 @@ class BettingBot:
                 if prediction:
                     all_predictions.append(prediction)
 
-            # Sort predictions by best confidence across all markets
+            # Sort predictions by confidence
             all_predictions.sort(
                 key=lambda x: max(pred['confidence'] for pred in x['predictions'].values()),
                 reverse=True
@@ -579,61 +653,63 @@ class BettingBot:
 
             if selected_predictions:
                 current_date = datetime.now().strftime('%Y-%m-%d')
-                messages = []  # Split into multiple messages if needed
-                current_message = f"🎯 Premium Predictions {current_date} 🎯\n\n"
-                current_message += "⚠️ Betting Tips:\n"
-                current_message += "• Bet responsibly\n"
-                current_message += "• Stake 1-2% per game\n"
-                current_message += "• Always verify odds before betting\n\n"
+                messages = []
+                current_message = f"🎯 Premium Tips {current_date}\n\n"
                 
                 for idx, pred in enumerate(selected_predictions, 1):
-                    match_message = f"{idx}. {pred['sport'].upper()}\n"
-                    match_message += f"🏟 {pred['league']}\n"
-                    match_message += f"⚔️ {pred['home_team']} vs {pred['away_team']}\n"
+                    # Compact match header with emojis based on sport
+                    sport_emoji = "⚽️" if pred['sport'] == 'football' else "🏀"
+                    match_message = f"{idx}. {sport_emoji} {pred['league']}\n"
+                    match_message += f"{pred['home_team']} v {pred['away_team']} "
+                    match_message += f"({pred['time'].strftime('%H:%M')})\n"
                     
-                    # Format date and time
-                    match_date = pred['time'].strftime('%Y-%m-%d')
-                    match_time = pred['time'].strftime('%H:%M')
-                    match_message += f"📅 Date: {match_date}\n"
-                    match_message += f"⏰ Time: {match_time} UTC\n"
-                    
-                    # Add odds if available
-                    if 'home_odds' in pred and 'away_odds' in pred:
-                        match_message += f"📈 Odds: H {pred['home_odds']:.2f} | A {pred['away_odds']:.2f}\n"
-                    
-                    match_message += "\n📊 Best Picks:\n"
-                    
-                    # Sort predictions by confidence
+                    # Sort predictions by confidence and format them compactly
                     sorted_predictions = sorted(
                         pred['predictions'].items(),
                         key=lambda x: x[1]['confidence'],
                         reverse=True
-                    )[:3]  # Show only top 3 predictions per match
+                    )[:7]  # Show only top 7 highest confidence predictions per match
+                    
+                    # Group predictions by confidence level
+                    high_conf = []
+                    med_conf = []
                     
                     for market, market_pred in sorted_predictions:
                         confidence_pct = market_pred['confidence'] * 100
-                        if confidence_pct >= 65:  # Only show high confidence predictions
-                            stars = "⭐" * (1 + int(confidence_pct >= 70) + int(confidence_pct >= 80))
-                            market_name = market.replace('_', ' ').title()
-                            match_message += f"• {market_name}: {market_pred['prediction']} "
-                            match_message += f"{stars} ({confidence_pct:.1f}%)\n"
+                        if confidence_pct >= 75:
+                            market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
+                            pred_str = f"{market_name}: {market_pred['prediction']}"
+                            if 'odds' in market_pred:
+                                pred_str += f" @{market_pred['odds']}"
+                            high_conf.append(pred_str)
+                        elif confidence_pct >= 65:
+                            market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
+                            pred_str = f"{market_name}: {market_pred['prediction']}"
+                            if 'odds' in market_pred:
+                                pred_str += f" @{market_pred['odds']}"
+                            med_conf.append(pred_str)
+                    
+                    # Format predictions compactly
+                    if high_conf:
+                        match_message += "⭐️ " + " | ".join(high_conf) + "\n"
+                    if med_conf:
+                        match_message += "✅ " + " | ".join(med_conf) + "\n"
                     
                     match_message += "\n"
                     
                     # Store prediction for later result checking
                     self.predictions[str(pred['match_id'])] = pred
                     
-                    # Check if adding this match would exceed Telegram's limit
                     if len(current_message + match_message) > 4000:
                         messages.append(current_message)
                         current_message = match_message
                     else:
                         current_message += match_message
                 
-                # Add footer to last message
-                footer = "\n🤖 AI-Powered Predictions | Past ≠ Future\n"
-                footer += "📱 Join @bamzz_cryptoalpha for more picks!\n"
-                footer += "🔄 Next update: 00:00 UTC"
+                # Add compact footer
+                footer = "\n💡 Key: ML-Money Line | O-Over | U-Under | DC-Double Chance\n"
+                footer += "DNB-Draw No Bet | 1H-First Half | 1Q-First Quarter\n"
+                footer += "📱 @bamzz_cryptoalpha | ⚠️ Stake 1-2% per tip"
                 
                 if len(current_message + footer) <= 4000:
                     current_message += footer
@@ -648,7 +724,7 @@ class BettingBot:
                     if not success:
                         logger.error("Failed to send predictions message")
                         break
-                    await asyncio.sleep(1)  # Avoid hitting rate limits
+                    await asyncio.sleep(1)
             else:
                 logger.info("No matches found for today")
 
