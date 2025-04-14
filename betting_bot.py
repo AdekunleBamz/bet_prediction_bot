@@ -15,6 +15,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 import joblib
 import pandas as pd
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -24,12 +28,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-TELEGRAM_TOKEN = "7424795210:AAGzxJizDtUO2Y5pvX1RkgHPrez3XAwuuTA"
-CHANNEL_USERNAME = "@bamzz_cryptoalpha"
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 MAX_PREDICTIONS_PER_DAY = 30
 
 # API-SPORTS Configuration
-RAPID_API_KEY = "1e36d337cfmsh2bfb4088c18180dp11d41djsn9374d4c25b1d"
+RAPID_API_KEY = os.getenv('RAPID_API_KEY')
 FOOTBALL_API_HOST = "api-football-v1.p.rapidapi.com"
 BASKETBALL_API_HOST = "api-basketball.p.rapidapi.com"
 
@@ -53,16 +57,18 @@ class MLPredictor:
     def __init__(self, sport: str):
         self.sport = sport
         self.model = None
-        self.scaler = StandardScaler()
+        self.scaler = None
         self.load_or_create_model()
 
     def load_or_create_model(self):
         """Load existing model or create a new one"""
         model_path = FOOTBALL_MODEL_PATH if self.sport == 'football' else BASKETBALL_MODEL_PATH
+        scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_scaler.joblib')
         
-        if os.path.exists(model_path):
+        if os.path.exists(model_path) and os.path.exists(scaler_path):
             try:
                 self.model = joblib.load(model_path)
+                self.scaler = joblib.load(scaler_path)
                 logger.info(f"Loaded existing {self.sport} model")
             except Exception as e:
                 logger.error(f"Error loading model: {e}")
@@ -73,48 +79,36 @@ class MLPredictor:
     def create_new_model(self):
         """Create a new RandomForest model"""
         self.model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=10,
-            random_state=42
+            n_estimators=500,
+            max_depth=8,
+            min_samples_split=5,
+            min_samples_leaf=3,
+            random_state=42,
+            class_weight='balanced',
+            n_jobs=-1
         )
+        self.scaler = StandardScaler()
         logger.info(f"Created new {self.sport} model")
 
     def prepare_features(self, match_data: Dict) -> np.ndarray:
         """Extract and prepare features from match data"""
         features = []
         
-        if self.sport == 'football':
-            try:
-                # Extract relevant features for football
-                home_odds = float(match_data.get('home_odds', 2.0))
-                away_odds = float(match_data.get('away_odds', 2.0))
-                
-                features = [
-                    home_odds,
-                    away_odds,
-                    1/home_odds,  # implied probability
-                    1/away_odds,  # implied probability
-                    home_odds/away_odds,  # odds ratio
-                ]
-            except Exception as e:
-                logger.error(f"Error preparing football features: {e}")
-                return None
-        else:  # basketball
-            try:
-                # Extract relevant features for basketball
-                home_odds = float(match_data.get('home_odds', 2.0))
-                away_odds = float(match_data.get('away_odds', 2.0))
-                
-                features = [
-                    home_odds,
-                    away_odds,
-                    1/home_odds,
-                    1/away_odds,
-                    home_odds/away_odds,
-                ]
-            except Exception as e:
-                logger.error(f"Error preparing basketball features: {e}")
-                return None
+        try:
+            # Extract relevant features
+            home_odds = float(match_data.get('home_odds', 2.0))
+            away_odds = float(match_data.get('away_odds', 2.0))
+            
+            features = [
+                home_odds,
+                away_odds,
+                1/home_odds,  # implied probability
+                1/away_odds,  # implied probability
+                home_odds/away_odds  # odds ratio
+            ]
+        except Exception as e:
+            logger.error(f"Error preparing features: {e}")
+            return None
 
         return np.array(features).reshape(1, -1)
 
@@ -126,7 +120,10 @@ class MLPredictor:
                 return None
 
             # Scale features
-            scaled_features = self.scaler.fit_transform(features)
+            if self.scaler is not None:
+                scaled_features = self.scaler.transform(features)
+            else:
+                scaled_features = features
             
             # Make prediction
             pred_proba = self.model.predict_proba(scaled_features)[0]
@@ -154,7 +151,10 @@ class MLPredictor:
                 return
 
             # Scale features
-            scaled_features = self.scaler.fit_transform(features)
+            if self.scaler is not None:
+                scaled_features = self.scaler.transform(features)
+            else:
+                scaled_features = features
             
             # Convert result to numeric
             y = 1 if actual_result == 'home' else 0
@@ -162,10 +162,12 @@ class MLPredictor:
             # Partial fit
             self.model.fit(scaled_features, [y])
             
-            # Save updated model
+            # Save updated model and scaler
             model_path = FOOTBALL_MODEL_PATH if self.sport == 'football' else BASKETBALL_MODEL_PATH
+            scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_scaler.joblib')
             os.makedirs(MODEL_DIR, exist_ok=True)
             joblib.dump(self.model, model_path)
+            joblib.dump(self.scaler, scaler_path)
             logger.info(f"Updated and saved {self.sport} model")
 
         except Exception as e:
