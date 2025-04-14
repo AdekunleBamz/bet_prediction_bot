@@ -169,23 +169,17 @@ class MLPredictor:
         )
         self.scalers[pred_type] = StandardScaler()
         
-        # Initialize scaler with some default data
-        if self.sport == 'football':
-            default_data = np.array([
-                [2.0, 2.0, 1.5, 1.2, 5.5, 4.5, 1.1],  # Default features for football
-                [1.8, 2.2, 1.3, 1.4, 5.0, 5.0, 1.2],
-                [2.1, 1.9, 1.6, 1.1, 6.0, 4.0, 1.0]
-            ])
-        else:  # basketball
-            default_data = np.array([
-                [2.0, 2.0, 105.5, 102.3, 26.5, 25.8],  # Default features for basketball
-                [1.8, 2.2, 108.0, 100.0, 27.0, 25.0],
-                [2.1, 1.9, 103.0, 104.5, 26.0, 26.5]
-            ])
+        # Initialize scaler with some default data using 4 features
+        default_data = np.array([
+            [2.0, 2.0, 0.5, 0.5],  # home_odds, away_odds, home_form, away_form
+            [1.8, 2.2, 0.6, 0.4],
+            [2.1, 1.9, 0.4, 0.6],
+            [1.9, 2.1, 0.5, 0.5]
+        ])
         
         self.scalers[pred_type].fit(default_data)
         # Train model with some default outcomes (balanced classes)
-        default_outcomes = np.array([0, 1, 0])  # Example outcomes
+        default_outcomes = np.array([0, 1, 0, 1])  # Example outcomes
         self.models[pred_type].fit(default_data, default_outcomes)
         
         logger.info(f"Created new {self.sport} {pred_type} model")
@@ -193,14 +187,12 @@ class MLPredictor:
     def prepare_features(self, match_data: Dict, pred_type: str) -> np.ndarray:
         """Extract and prepare features from match data for specific prediction type"""
         try:
-            # Base features for all predictions
+            # Base features for all predictions (reduced to 4 features)
             features = [
                 float(match_data.get('home_odds', 2.0)),
                 float(match_data.get('away_odds', 2.0)),
                 float(match_data.get('home_form', 0.5)),  # Recent form (0-1)
-                float(match_data.get('away_form', 0.5)),  # Recent form (0-1)
-                float(match_data.get('h2h_advantage', 0.5)),  # Head-to-head advantage (0-1)
-                float(match_data.get('league_position_diff', 0.0))  # League position difference
+                float(match_data.get('away_form', 0.5))   # Recent form (0-1)
             ]
             
             return np.array(features).reshape(1, -1)
