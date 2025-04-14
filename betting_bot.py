@@ -544,16 +544,16 @@ class BettingBot:
             for league_id in FOOTBALL_LEAGUES:
                 odds_list = await self.get_football_odds(league_id)
                 for odds in odds_list:
-                    predictions = await self.analyze_football_odds(odds)
-                    if predictions:
-                        all_predictions.append(predictions)
+                    prediction = await self.analyze_football_odds(odds)
+                    if prediction:
+                        all_predictions.append(prediction)
             
             # Get basketball predictions
             games = await self.get_basketball_games()
             for game in games:
-                predictions = await self.analyze_basketball_game(game)
-                if predictions:
-                    all_predictions.append(predictions)
+                prediction = await self.analyze_basketball_game(game)
+                if prediction:
+                    all_predictions.append(prediction)
 
             # Sort predictions by best confidence across all markets
             all_predictions.sort(
@@ -564,48 +564,61 @@ class BettingBot:
 
             if selected_predictions:
                 current_date = datetime.now().strftime('%Y-%m-%d')
-                message = f"🎯 Premium Betting Predictions for {current_date} 🎯\n\n"
-                message += "⚠️ Betting Advice:\n"
-                message += "• Never bet more than you can afford to lose\n"
-                message += "• Recommended stake: 1-2% of bankroll per game\n"
-                message += "• Always practice responsible gambling\n\n"
+                messages = []  # Split into multiple messages if needed
+                current_message = f"🎯 Premium Predictions {current_date} 🎯\n\n"
+                current_message += "⚠️ Betting Tips:\n"
+                current_message += "• Bet responsibly\n"
+                current_message += "• Stake 1-2% per game\n\n"
                 
                 for idx, pred in enumerate(selected_predictions, 1):
-                    emoji = "⚽️" if pred['sport'] == 'football' else "🏀"
-                    match_time = pred['time'].strftime('%Y-%m-%d %H:%M')
-                    
-                    message += f"{idx}. {emoji} {pred['league']}\n"
-                    message += f"🏟 {pred['home_team']} vs {pred['away_team']}\n"
-                    message += f"📅 {match_time} UTC\n\n"
-                    message += "📊 Predictions:\n"
+                    match_message = f"{idx}. {pred['sport'].upper()}\n"
+                    match_message += f"🏟 {pred['league']}\n"
+                    match_message += f"⚔️ {pred['home_team']} vs {pred['away_team']}\n"
+                    match_message += f"🕒 {pred['time'].strftime('%H:%M')} UTC\n\n"
+                    match_message += "📊 Best Picks:\n"
                     
                     # Sort predictions by confidence
                     sorted_predictions = sorted(
                         pred['predictions'].items(),
                         key=lambda x: x[1]['confidence'],
                         reverse=True
-                    )
+                    )[:3]  # Show only top 3 predictions per match
                     
                     for market, market_pred in sorted_predictions:
                         confidence_pct = market_pred['confidence'] * 100
-                        stars = "⭐" * (1 + int(confidence_pct >= 65) + int(confidence_pct >= 75))
-                        
-                        # Format market name
-                        market_name = market.replace('_', ' ').title()
-                        
-                        message += f"• {market_name}: {market_pred['prediction']} "
-                        message += f"{stars} ({confidence_pct:.1f}%)\n"
+                        if confidence_pct >= 65:  # Only show high confidence predictions
+                            stars = "⭐" * (1 + int(confidence_pct >= 70) + int(confidence_pct >= 80))
+                            market_name = market.replace('_', ' ').title()
+                            match_message += f"• {market_name}: {market_pred['prediction']} "
+                            match_message += f"{stars} ({confidence_pct:.1f}%)\n"
                     
-                    message += "\n"
+                    match_message += "\n"
                     
-                    # Store prediction for later result checking
-                    self.predictions[str(pred['match_id'])] = pred
+                    # Check if adding this match would exceed Telegram's limit
+                    if len(current_message + match_message) > 4000:
+                        messages.append(current_message)
+                        current_message = match_message
+                    else:
+                        current_message += match_message
                 
-                # Add footer
-                message += "🤖 Powered by ML | Past performance ≠ Future results\n"
-                message += "📱 Join @bamzz_cryptoalpha for more predictions!"
+                # Add footer to last message
+                footer = "\n🤖 AI-Powered Predictions | Past ≠ Future\n"
+                footer += "📱 Join @bamzz_cryptoalpha for more picks!"
                 
-                await self.send_message_with_retry(message)
+                if len(current_message + footer) <= 4000:
+                    current_message += footer
+                    messages.append(current_message)
+                else:
+                    messages.append(current_message)
+                    messages.append(footer)
+                
+                # Send all messages
+                for message in messages:
+                    success = await self.send_message_with_retry(message)
+                    if not success:
+                        logger.error("Failed to send predictions message")
+                        break
+                    await asyncio.sleep(1)  # Avoid hitting rate limits
             else:
                 logger.info("No matches found for today")
 
