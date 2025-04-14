@@ -60,48 +60,24 @@ RETRY_DELAY = 60  # Seconds to wait after hitting rate limit
 
 # Updated betting markets with 1xBet options
 FOOTBALL_MARKETS = {
-    'match_result': '1X2',
-    'first_half_result': '1H 1X2',
-    'btts': 'BTTS',
+    'match_result': '1X2',  # Home(1), Draw(X), Away(2)
     'over_under_2_5': 'O/U 2.5',
-    'over_under_1_5': 'O/U 1.5',
-    'over_under_3_5': 'O/U 3.5',
-    'first_half_over_under_1_5': '1H O/U 1.5',
-    'double_chance': 'DC',
+    'btts': 'BTTS',
     'draw_no_bet': 'DNB',
-    'both_teams_score_first_half': '1H BTTS',
-    'first_team_score': '1st Goal',
-    'home_team_over_1_5': 'Home O1.5',
-    'away_team_over_1_5': 'Away O1.5',
-    'home_win_both_halves': 'Home Win BH',
-    'away_win_both_halves': 'Away Win BH',
-    'win_to_nil_home': 'Home WTN',
-    'win_to_nil_away': 'Away WTN',
-    'home_score_both_halves': 'Home SBH',
-    'away_score_both_halves': 'Away SBH',
-    'exact_goals_1_2': '1-2 Goals',
-    'exact_goals_2_3': '2-3 Goals',
-    'exact_goals_3_4': '3-4 Goals'
+    'handicap': 'HDP',
+    'correct_score': 'CS',
+    'double_chance': 'DC',  # 1X, X2, 12
+    'first_half_result': '1H 1X2'
 }
 
 BASKETBALL_MARKETS = {
-    'match_winner': 'ML',
-    'total_points_over_under': 'O/U',
+    'match_winner': 'ML',  # Money Line (Home/Away)
+    'total_points': 'O/U',  # Over/Under total points
+    'draw_no_bet': 'DNB',
+    'handicap': 'HDP',
+    'correct_score': 'CS',
     'first_quarter_winner': '1Q ML',
-    'first_half_winner': '1H ML',
-    'point_spread': 'Spread',
-    'first_quarter_total': '1Q O/U',
-    'first_half_total': '1H O/U',
-    'home_team_total_over': 'Home O',
-    'away_team_total_over': 'Away O',
-    'winning_margin_1_10': 'Win 1-10',
-    'winning_margin_11_plus': 'Win 11+',
-    'race_to_20_points': 'Race 20',
-    'highest_scoring_half': 'High Half',
-    'team_highest_scoring_quarter': 'Team High Q',
-    'will_be_overtime': 'OT',
-    'first_to_score': '1st Score',
-    'last_to_score': 'Last Score'
+    'first_half_winner': '1H ML'
 }
 
 class MLPredictor:
@@ -211,72 +187,100 @@ class MLPredictor:
             away_points_avg = float(match_data.get('away_points_avg', 102.3))
             home_first_quarter_avg = float(match_data.get('home_first_quarter_avg', 26.5))
             away_first_quarter_avg = float(match_data.get('away_first_quarter_avg', 25.8))
+            home_first_half_avg = float(match_data.get('home_first_half_avg', 52.5))
+            away_first_half_avg = float(match_data.get('away_first_half_avg', 51.2))
+
+            features = []  # Initialize features list
 
             # Prepare features based on prediction type
             if self.sport == 'football':
-                if pred_type == 'match_result':
+                if pred_type in ['match_result', 'double_chance', 'draw_no_bet']:
                     features = [
                         home_odds, away_odds,
                         1/home_odds, 1/away_odds,
                         home_goals_avg, away_goals_avg
                     ]
-                elif pred_type == 'btts':
+                elif pred_type in ['btts', 'both_teams_score_first_half']:
                     features = [
                         home_odds, away_odds,
                         home_goals_avg, away_goals_avg,
                         home_goals_avg * away_goals_avg
                     ]
-                elif pred_type == 'over_under_2_5':
+                elif pred_type.startswith('over_under') or pred_type.startswith('exact_goals'):
                     features = [
                         home_odds, away_odds,
                         home_goals_avg, away_goals_avg,
                         home_goals_avg + away_goals_avg
                     ]
-                elif pred_type == 'first_half_result':
+                elif pred_type.startswith('first_half'):
                     features = [
                         home_odds, away_odds,
                         first_half_goals_avg,
                         home_goals_avg/2, away_goals_avg/2
                     ]
-                elif pred_type == 'first_team_score':
+                elif pred_type in ['first_team_score', 'home_team_over_1_5', 'away_team_over_1_5']:
                     features = [
                         home_odds, away_odds,
                         home_goals_avg, away_goals_avg
                     ]
-                elif pred_type == 'total_corners_over_9_5':
+                elif pred_type in ['home_win_both_halves', 'away_win_both_halves', 
+                                 'win_to_nil_home', 'win_to_nil_away',
+                                 'home_score_both_halves', 'away_score_both_halves']:
                     features = [
                         home_odds, away_odds,
-                        home_corners_avg, away_corners_avg
+                        home_goals_avg, away_goals_avg,
+                        first_half_goals_avg
                     ]
             else:  # basketball
-                if pred_type == 'match_winner':
+                if pred_type in ['match_winner', 'first_quarter_winner', 'first_half_winner']:
                     features = [
                         home_odds, away_odds,
                         1/home_odds, 1/away_odds,
                         home_points_avg, away_points_avg
                     ]
-                elif pred_type == 'total_points_over_200':
+                elif pred_type in ['total_points_over_under', 'first_quarter_total', 'first_half_total']:
                     features = [
                         home_odds, away_odds,
                         home_points_avg, away_points_avg,
                         home_points_avg + away_points_avg
                     ]
-                elif pred_type == 'first_quarter_winner':
-                    features = [
-                        home_odds, away_odds,
-                        home_first_quarter_avg, away_first_quarter_avg
-                    ]
-                elif pred_type == 'point_spread_home':
+                elif pred_type == 'point_spread':
                     features = [
                         home_odds, away_odds,
                         home_points_avg, away_points_avg,
                         home_points_avg - away_points_avg
                     ]
-                elif pred_type == 'first_half_winner':
+                elif pred_type in ['home_team_total_over', 'away_team_total_over']:
                     features = [
                         home_odds, away_odds,
-                        home_points_avg/2, away_points_avg/2
+                        home_points_avg, away_points_avg
                     ]
+                elif pred_type in ['winning_margin_1_10', 'winning_margin_11_plus']:
+                    features = [
+                        home_odds, away_odds,
+                        home_points_avg, away_points_avg,
+                        abs(home_points_avg - away_points_avg)
+                    ]
+                elif pred_type in ['race_to_20_points', 'first_to_score', 'last_to_score']:
+                    features = [
+                        home_odds, away_odds,
+                        home_first_quarter_avg, away_first_quarter_avg
+                    ]
+                elif pred_type in ['highest_scoring_half', 'team_highest_scoring_quarter']:
+                    features = [
+                        home_odds, away_odds,
+                        home_first_half_avg, away_first_half_avg,
+                        home_first_quarter_avg, away_first_quarter_avg
+                    ]
+                elif pred_type == 'will_be_overtime':
+                    features = [
+                        home_odds, away_odds,
+                        abs(home_points_avg - away_points_avg),
+                        min(home_points_avg, away_points_avg)
+                    ]
+
+            if not features:  # If no features were set, use default
+                features = [home_odds, away_odds]
 
             return np.array(features).reshape(1, -1)
             
@@ -668,32 +672,35 @@ class BettingBot:
                         pred['predictions'].items(),
                         key=lambda x: x[1]['confidence'],
                         reverse=True
-                    )[:7]  # Show only top 7 highest confidence predictions per match
+                    )
                     
                     # Group predictions by confidence level
-                    high_conf = []
-                    med_conf = []
+                    high_conf = []  # 80%+
+                    med_conf = []   # 65-79%
+                    low_conf = []   # 55-64%
                     
                     for market, market_pred in sorted_predictions:
                         confidence_pct = market_pred['confidence'] * 100
-                        if confidence_pct >= 75:
-                            market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
-                            pred_str = f"{market_name}: {market_pred['prediction']}"
-                            if 'odds' in market_pred:
-                                pred_str += f" @{market_pred['odds']}"
+                        market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
+                        pred_str = f"{market_name}: {market_pred['prediction']}"
+                        if 'odds' in market_pred:
+                            pred_str += f" @{market_pred['odds']}"
+                        pred_str += f" ({confidence_pct:.1f}%)"
+                        
+                        if confidence_pct >= 80:
                             high_conf.append(pred_str)
                         elif confidence_pct >= 65:
-                            market_name = FOOTBALL_MARKETS.get(market, '') if pred['sport'] == 'football' else BASKETBALL_MARKETS.get(market, '')
-                            pred_str = f"{market_name}: {market_pred['prediction']}"
-                            if 'odds' in market_pred:
-                                pred_str += f" @{market_pred['odds']}"
                             med_conf.append(pred_str)
+                        elif confidence_pct >= 55:
+                            low_conf.append(pred_str)
                     
-                    # Format predictions compactly
+                    # Format predictions with emojis and confidence levels
                     if high_conf:
-                        match_message += "⭐️ " + " | ".join(high_conf) + "\n"
+                        match_message += "🔥 HIGH CONFIDENCE:\n" + "\n".join(f"• {p}" for p in high_conf) + "\n"
                     if med_conf:
-                        match_message += "✅ " + " | ".join(med_conf) + "\n"
+                        match_message += "✅ MEDIUM CONFIDENCE:\n" + "\n".join(f"• {p}" for p in med_conf) + "\n"
+                    if low_conf:
+                        match_message += "⚠️ LOW CONFIDENCE:\n" + "\n".join(f"• {p}" for p in low_conf) + "\n"
                     
                     match_message += "\n"
                     
@@ -707,9 +714,12 @@ class BettingBot:
                         current_message += match_message
                 
                 # Add compact footer
-                footer = "\n💡 Key: ML-Money Line | O-Over | U-Under | DC-Double Chance\n"
-                footer += "DNB-Draw No Bet | 1H-First Half | 1Q-First Quarter\n"
-                footer += "📱 @bamzz_cryptoalpha | ⚠️ Stake 1-2% per tip"
+                footer = "\n💡 Key Betting Markets:\n"
+                footer += "1X2: 1-Home Win, X-Draw, 2-Away Win\n"
+                footer += "O/U: Over/Under Goals/Points | BTTS: Both Teams To Score\n"
+                footer += "DNB: Draw No Bet | HDP: Handicap | CS: Correct Score\n"
+                footer += "DC: Double Chance (1X/X2/12) | 1H: First Half\n"
+                footer += "\n📱 @bamzz_cryptoalpha | ⚠️ Stake 1-2% per tip"
                 
                 if len(current_message + footer) <= 4000:
                     current_message += footer
