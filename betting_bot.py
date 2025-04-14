@@ -117,36 +117,93 @@ class MLPredictor:
 
     def prepare_features(self, match_data: Dict, pred_type: str) -> np.ndarray:
         """Extract and prepare features from match data for specific prediction type"""
-        features = []
-        
         try:
             # Base features
             home_odds = float(match_data.get('home_odds', 2.0))
             away_odds = float(match_data.get('away_odds', 2.0))
-            features = [home_odds, away_odds, 1/home_odds, 1/away_odds]
             
-            # Add specific features based on prediction type
-            if pred_type == 'btts':
-                features.extend([
-                    match_data.get('home_goals_scored_avg', 1.5),
-                    match_data.get('away_goals_scored_avg', 1.5)
-                ])
-            elif pred_type == 'over_under_2_5':
-                features.extend([
-                    match_data.get('total_goals_avg', 2.5),
-                    match_data.get('over_2_5_odds', 1.9)
-                ])
-            elif pred_type == 'total_points_over_200':
-                features.extend([
-                    match_data.get('home_points_avg', 100),
-                    match_data.get('away_points_avg', 100)
-                ])
+            # Get additional features with default values
+            home_goals_avg = float(match_data.get('home_goals_scored_avg', 1.5))
+            away_goals_avg = float(match_data.get('away_goals_scored_avg', 1.2))
+            home_corners_avg = float(match_data.get('home_corners_avg', 5.5))
+            away_corners_avg = float(match_data.get('away_corners_avg', 4.5))
+            first_half_goals_avg = float(match_data.get('first_half_goals_avg', 1.1))
+            home_points_avg = float(match_data.get('home_points_avg', 105.5))
+            away_points_avg = float(match_data.get('away_points_avg', 102.3))
+            home_first_quarter_avg = float(match_data.get('home_first_quarter_avg', 26.5))
+            away_first_quarter_avg = float(match_data.get('away_first_quarter_avg', 25.8))
+
+            # Prepare features based on prediction type
+            if self.sport == 'football':
+                if pred_type == 'match_result':
+                    features = [
+                        home_odds, away_odds,
+                        1/home_odds, 1/away_odds,
+                        home_goals_avg, away_goals_avg
+                    ]
+                elif pred_type == 'btts':
+                    features = [
+                        home_odds, away_odds,
+                        home_goals_avg, away_goals_avg,
+                        home_goals_avg * away_goals_avg
+                    ]
+                elif pred_type == 'over_under_2_5':
+                    features = [
+                        home_odds, away_odds,
+                        home_goals_avg, away_goals_avg,
+                        home_goals_avg + away_goals_avg
+                    ]
+                elif pred_type == 'first_half_result':
+                    features = [
+                        home_odds, away_odds,
+                        first_half_goals_avg,
+                        home_goals_avg/2, away_goals_avg/2
+                    ]
+                elif pred_type == 'first_team_score':
+                    features = [
+                        home_odds, away_odds,
+                        home_goals_avg, away_goals_avg
+                    ]
+                elif pred_type == 'total_corners_over_9_5':
+                    features = [
+                        home_odds, away_odds,
+                        home_corners_avg, away_corners_avg
+                    ]
+            else:  # basketball
+                if pred_type == 'match_winner':
+                    features = [
+                        home_odds, away_odds,
+                        1/home_odds, 1/away_odds,
+                        home_points_avg, away_points_avg
+                    ]
+                elif pred_type == 'total_points_over_200':
+                    features = [
+                        home_odds, away_odds,
+                        home_points_avg, away_points_avg,
+                        home_points_avg + away_points_avg
+                    ]
+                elif pred_type == 'first_quarter_winner':
+                    features = [
+                        home_odds, away_odds,
+                        home_first_quarter_avg, away_first_quarter_avg
+                    ]
+                elif pred_type == 'point_spread_home':
+                    features = [
+                        home_odds, away_odds,
+                        home_points_avg, away_points_avg,
+                        home_points_avg - away_points_avg
+                    ]
+                elif pred_type == 'first_half_winner':
+                    features = [
+                        home_odds, away_odds,
+                        home_points_avg/2, away_points_avg/2
+                    ]
+
+            return np.array(features).reshape(1, -1)
             
         except Exception as e:
-            logger.error(f"Error preparing features: {e}")
+            logger.error(f"Error preparing features for {pred_type}: {e}")
             return None
-
-        return np.array(features).reshape(1, -1)
 
     def predict(self, match_data: Dict) -> Dict:
         """Make predictions for all relevant markets"""
