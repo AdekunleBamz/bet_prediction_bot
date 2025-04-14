@@ -49,9 +49,14 @@ FOOTBALL_LEAGUES = [
 ]
 
 # ML Model paths
-MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models')
+MODEL_DIR = os.getenv('MODEL_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models'))
 FOOTBALL_MODEL_PATH = os.path.join(MODEL_DIR, 'football_model.joblib')
 BASKETBALL_MODEL_PATH = os.path.join(MODEL_DIR, 'basketball_model.joblib')
+
+# Add these constants at the top of the file after other constants
+API_RATE_LIMIT_DELAY = 3  # Seconds between API calls
+MAX_RETRIES = 5
+RETRY_DELAY = 60  # Seconds to wait after hitting rate limit
 
 class MLPredictor:
     def __init__(self, sport: str):
@@ -346,26 +351,33 @@ class BettingBot:
                 logger.error(f"Error sending message: {e}")
                 return False
 
-    async def fetch_data_with_retry(self, url: str, headers: Dict, max_retries: int = 3) -> Dict:
-        """Fetch data from APIs with retry mechanism"""
-        for attempt in range(max_retries):
+    async def fetch_data_with_retry(self, url: str, headers: Dict, max_retries: int = MAX_RETRIES) -> Dict:
+        """Fetch data from APIs with improved retry mechanism and rate limiting"""
+        retry_count = 0
+        while retry_count < max_retries:
             try:
+                # Add delay between API calls to respect rate limits
+                if retry_count > 0:
+                    await asyncio.sleep(API_RATE_LIMIT_DELAY)
+                
                 async with aiohttp.ClientSession(timeout=self.timeout) as session:
                     async with session.get(url, headers=headers) as response:
                         if response.status == 200:
                             return await response.json()
                         elif response.status == 429:  # Rate limit
-                            retry_after = int(response.headers.get('Retry-After', 60))
+                            retry_after = int(response.headers.get('Retry-After', RETRY_DELAY))
                             logger.info(f"Rate limited. Waiting {retry_after} seconds")
                             await asyncio.sleep(retry_after)
+                            retry_count += 1
                             continue
                         else:
                             logger.error(f"API request failed with status {response.status}")
                             return None
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout on attempt {attempt + 1} of {max_retries}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5 * (attempt + 1))
+                logger.warning(f"Timeout on attempt {retry_count + 1} of {max_retries}")
+                if retry_count < max_retries - 1:
+                    await asyncio.sleep(API_RATE_LIMIT_DELAY * (retry_count + 1))
+                    retry_count += 1
                     continue
                 logger.error(f"Timeout error fetching data from {url}")
                 return None
@@ -414,10 +426,13 @@ class BettingBot:
             return False
 
     async def get_football_odds(self, league_id: int) -> List[Dict]:
-        """Fetch football odds for a specific league"""
+        """Fetch football odds for a specific league with rate limiting"""
         headers = self.headers.copy()
         headers["X-RapidAPI-Host"] = FOOTBALL_API_HOST
         url = f"{self.football_base_url}/odds/league/{league_id}/bookmaker/5"
+        
+        # Add delay between league requests
+        await asyncio.sleep(API_RATE_LIMIT_DELAY)
         
         data = await self.fetch_data_with_retry(url, headers)
         if data and 'api' in data and 'odds' in data['api']:
@@ -425,7 +440,7 @@ class BettingBot:
         return []
 
     async def get_basketball_games(self) -> List[Dict]:
-        """Fetch basketball games"""
+        """Fetch basketball games with rate limiting"""
         headers = self.headers.copy()
         headers["X-RapidAPI-Host"] = BASKETBALL_API_HOST
         today = datetime.now().strftime('%Y-%m-%d')
@@ -641,11 +656,14 @@ class BettingBot:
             logger.error(f"Error making predictions: {e}")
 
     async def check_results(self):
-        """Check results and update ML models"""
+        """Check results and update ML models with rate limiting"""
         completed_matches = []
         
         for match_id, prediction in self.predictions.items():
             try:
+                # Add delay between result checks
+                await asyncio.sleep(API_RATE_LIMIT_DELAY)
+                
                 if prediction['sport'] == 'football':
                     headers = self.headers.copy()
                     headers["X-RapidAPI-Host"] = FOOTBALL_API_HOST
