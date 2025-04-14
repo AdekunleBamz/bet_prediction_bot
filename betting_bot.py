@@ -56,29 +56,54 @@ BASKETBALL_MODEL_PATH = os.path.join(MODEL_DIR, 'basketball_model.joblib')
 class MLPredictor:
     def __init__(self, sport: str):
         self.sport = sport
-        self.model = None
-        self.scaler = None
-        self.load_or_create_model()
-
-    def load_or_create_model(self):
-        """Load existing model or create a new one"""
-        model_path = FOOTBALL_MODEL_PATH if self.sport == 'football' else BASKETBALL_MODEL_PATH
-        scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_scaler.joblib')
+        self.models = {}
+        self.scalers = {}
         
-        if os.path.exists(model_path) and os.path.exists(scaler_path):
-            try:
-                self.model = joblib.load(model_path)
-                self.scaler = joblib.load(scaler_path)
-                logger.info(f"Loaded existing {self.sport} model")
-            except Exception as e:
-                logger.error(f"Error loading model: {e}")
-                self.create_new_model()
-        else:
-            self.create_new_model()
+        # Define prediction types for each sport
+        self.football_predictions = [
+            'match_result',
+            'btts',  # Both Teams To Score
+            'over_under_2_5',
+            'first_half_result',
+            'first_team_score',
+            'total_corners_over_9_5'
+        ]
+        
+        self.basketball_predictions = [
+            'match_winner',
+            'total_points_over_200',
+            'first_quarter_winner',
+            'point_spread_home',
+            'first_half_winner'
+        ]
+        
+        self.load_or_create_models()
 
-    def create_new_model(self):
-        """Create a new RandomForest model"""
-        self.model = RandomForestClassifier(
+    def load_or_create_models(self):
+        """Load existing models or create new ones"""
+        prediction_types = (
+            self.football_predictions if self.sport == 'football' 
+            else self.basketball_predictions
+        )
+        
+        for pred_type in prediction_types:
+            model_path = os.path.join(MODEL_DIR, f'{self.sport}_{pred_type}_model.joblib')
+            scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_{pred_type}_scaler.joblib')
+            
+            if os.path.exists(model_path) and os.path.exists(scaler_path):
+                try:
+                    self.models[pred_type] = joblib.load(model_path)
+                    self.scalers[pred_type] = joblib.load(scaler_path)
+                    logger.info(f"Loaded existing {self.sport} {pred_type} model")
+                except Exception as e:
+                    logger.error(f"Error loading model: {e}")
+                    self.create_new_model(pred_type)
+            else:
+                self.create_new_model(pred_type)
+
+    def create_new_model(self, pred_type: str):
+        """Create a new RandomForest model for specific prediction type"""
+        self.models[pred_type] = RandomForestClassifier(
             n_estimators=500,
             max_depth=8,
             min_samples_split=5,
@@ -87,25 +112,36 @@ class MLPredictor:
             class_weight='balanced',
             n_jobs=-1
         )
-        self.scaler = StandardScaler()
-        logger.info(f"Created new {self.sport} model")
+        self.scalers[pred_type] = StandardScaler()
+        logger.info(f"Created new {self.sport} {pred_type} model")
 
-    def prepare_features(self, match_data: Dict) -> np.ndarray:
-        """Extract and prepare features from match data"""
+    def prepare_features(self, match_data: Dict, pred_type: str) -> np.ndarray:
+        """Extract and prepare features from match data for specific prediction type"""
         features = []
         
         try:
-            # Extract relevant features
+            # Base features
             home_odds = float(match_data.get('home_odds', 2.0))
             away_odds = float(match_data.get('away_odds', 2.0))
+            features = [home_odds, away_odds, 1/home_odds, 1/away_odds]
             
-            features = [
-                home_odds,
-                away_odds,
-                1/home_odds,  # implied probability
-                1/away_odds,  # implied probability
-                home_odds/away_odds  # odds ratio
-            ]
+            # Add specific features based on prediction type
+            if pred_type == 'btts':
+                features.extend([
+                    match_data.get('home_goals_scored_avg', 1.5),
+                    match_data.get('away_goals_scored_avg', 1.5)
+                ])
+            elif pred_type == 'over_under_2_5':
+                features.extend([
+                    match_data.get('total_goals_avg', 2.5),
+                    match_data.get('over_2_5_odds', 1.9)
+                ])
+            elif pred_type == 'total_points_over_200':
+                features.extend([
+                    match_data.get('home_points_avg', 100),
+                    match_data.get('away_points_avg', 100)
+                ])
+            
         except Exception as e:
             logger.error(f"Error preparing features: {e}")
             return None
@@ -113,62 +149,92 @@ class MLPredictor:
         return np.array(features).reshape(1, -1)
 
     def predict(self, match_data: Dict) -> Dict:
-        """Make prediction for a match"""
+        """Make predictions for all relevant markets"""
+        predictions = {}
+        prediction_types = (
+            self.football_predictions if self.sport == 'football' 
+            else self.basketball_predictions
+        )
+        
         try:
-            features = self.prepare_features(match_data)
-            if features is None:
-                return None
+            for pred_type in prediction_types:
+                features = self.prepare_features(match_data, pred_type)
+                if features is None:
+                    continue
 
-            # Scale features
-            if self.scaler is not None:
-                scaled_features = self.scaler.transform(features)
-            else:
-                scaled_features = features
-            
-            # Make prediction
-            pred_proba = self.model.predict_proba(scaled_features)[0]
-            prediction = 'home' if pred_proba[1] > 0.5 else 'away'
-            confidence = max(pred_proba)
+                # Scale features
+                if self.scalers.get(pred_type) is not None:
+                    scaled_features = self.scalers[pred_type].transform(features)
+                else:
+                    scaled_features = features
+                
+                # Make prediction
+                model = self.models.get(pred_type)
+                if model is None:
+                    continue
+                    
+                pred_proba = model.predict_proba(scaled_features)[0]
+                
+                # Format prediction based on type
+                if pred_type == 'match_result':
+                    prediction = 'home' if pred_proba[1] > 0.5 else 'away'
+                elif pred_type == 'btts':
+                    prediction = 'Yes' if pred_proba[1] > 0.5 else 'No'
+                elif pred_type.startswith('over_under'):
+                    prediction = 'Over' if pred_proba[1] > 0.5 else 'Under'
+                else:
+                    prediction = 'Yes' if pred_proba[1] > 0.5 else 'No'
 
-            return {
-                'prediction': prediction,
-                'confidence': confidence,
-                'probabilities': {
-                    'home': pred_proba[1],
-                    'away': pred_proba[0]
-                }
-            }
+                confidence = max(pred_proba)
+                
+                if confidence > 0.55:  # Only include confident predictions
+                    predictions[pred_type] = {
+                        'prediction': prediction,
+                        'confidence': confidence,
+                        'probabilities': {
+                            'yes/home/over': pred_proba[1],
+                            'no/away/under': pred_proba[0]
+                        }
+                    }
+
+            return predictions if predictions else None
 
         except Exception as e:
             logger.error(f"Error making prediction: {e}")
             return None
 
-    def update_model(self, match_data: Dict, actual_result: str):
-        """Update model with new match result"""
+    def update_model(self, match_data: Dict, results: Dict):
+        """Update models with new match results"""
         try:
-            features = self.prepare_features(match_data)
-            if features is None:
-                return
+            for pred_type, result in results.items():
+                features = self.prepare_features(match_data, pred_type)
+                if features is None:
+                    continue
 
-            # Scale features
-            if self.scaler is not None:
-                scaled_features = self.scaler.transform(features)
-            else:
-                scaled_features = features
-            
-            # Convert result to numeric
-            y = 1 if actual_result == 'home' else 0
+                # Scale features
+                if self.scalers.get(pred_type) is not None:
+                    scaled_features = self.scalers[pred_type].transform(features)
+                else:
+                    scaled_features = features
+                
+                # Convert result to numeric
+                y = 1 if result in ['home', 'Yes', 'Over'] else 0
 
-            # Partial fit
-            self.model.fit(scaled_features, [y])
-            
-            # Save updated model and scaler
-            model_path = FOOTBALL_MODEL_PATH if self.sport == 'football' else BASKETBALL_MODEL_PATH
-            scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_scaler.joblib')
-            os.makedirs(MODEL_DIR, exist_ok=True)
-            joblib.dump(self.model, model_path)
-            joblib.dump(self.scaler, scaler_path)
-            logger.info(f"Updated and saved {self.sport} model")
+                # Update model
+                model = self.models.get(pred_type)
+                if model is None:
+                    continue
+                    
+                model.fit(scaled_features, [y])
+                
+                # Save updated model and scaler
+                model_path = os.path.join(MODEL_DIR, f'{self.sport}_{pred_type}_model.joblib')
+                scaler_path = os.path.join(MODEL_DIR, f'{self.sport}_{pred_type}_scaler.joblib')
+                os.makedirs(MODEL_DIR, exist_ok=True)
+                joblib.dump(model, model_path)
+                joblib.dump(self.scalers[pred_type], scaler_path)
+                
+            logger.info(f"Updated and saved {self.sport} models")
 
         except Exception as e:
             logger.error(f"Error updating model: {e}")
@@ -395,36 +461,66 @@ class BettingBot:
             for league_id in FOOTBALL_LEAGUES:
                 odds_list = await self.get_football_odds(league_id)
                 for odds in odds_list:
-                    prediction = await self.analyze_football_odds(odds)
-                    if prediction and prediction['confidence'] > 0.55:
-                        all_predictions.append(prediction)
+                    predictions = await self.analyze_football_odds(odds)
+                    if predictions:
+                        all_predictions.append(predictions)
             
             # Get basketball predictions
             games = await self.get_basketball_games()
             for game in games:
-                prediction = await self.analyze_basketball_game(game)
-                if prediction and prediction['confidence'] > 0.55:
-                    all_predictions.append(prediction)
+                predictions = await self.analyze_basketball_game(game)
+                if predictions:
+                    all_predictions.append(predictions)
 
-            # Sort predictions by confidence and take top MAX_PREDICTIONS_PER_DAY
-            all_predictions.sort(key=lambda x: x['confidence'], reverse=True)
+            # Sort predictions by best confidence across all markets
+            all_predictions.sort(
+                key=lambda x: max(pred['confidence'] for pred in x['predictions'].values()),
+                reverse=True
+            )
             selected_predictions = all_predictions[:MAX_PREDICTIONS_PER_DAY]
 
             if selected_predictions:
-                message = "🎯 Today's Top Betting Predictions 🎯\n\n"
-                message += "⚠️ Betting Advice: Never bet more than you can afford to lose.\n"
-                message += "Recommended: Bet no more than 1-2% of your bankroll per game.\n\n"
+                current_date = datetime.now().strftime('%Y-%m-%d')
+                message = f"🎯 Premium Betting Predictions for {current_date} 🎯\n\n"
+                message += "⚠️ Betting Advice:\n"
+                message += "• Never bet more than you can afford to lose\n"
+                message += "• Recommended stake: 1-2% of bankroll per game\n"
+                message += "• Always practice responsible gambling\n\n"
                 
                 for idx, pred in enumerate(selected_predictions, 1):
                     emoji = "⚽️" if pred['sport'] == 'football' else "🏀"
+                    match_time = pred['time'].strftime('%Y-%m-%d %H:%M')
+                    
                     message += f"{idx}. {emoji} {pred['league']}\n"
                     message += f"🏟 {pred['home_team']} vs {pred['away_team']}\n"
-                    message += f"🕒 {pred['time'].strftime('%H:%M')} UTC\n"
-                    message += f"📊 Prediction: {pred['prediction'].upper()} WIN\n"
-                    message += f"💪 Confidence: {pred['confidence']*100:.1f}%\n\n"
+                    message += f"📅 {match_time} UTC\n\n"
+                    message += "📊 Predictions:\n"
+                    
+                    # Sort predictions by confidence
+                    sorted_predictions = sorted(
+                        pred['predictions'].items(),
+                        key=lambda x: x[1]['confidence'],
+                        reverse=True
+                    )
+                    
+                    for market, market_pred in sorted_predictions:
+                        confidence_pct = market_pred['confidence'] * 100
+                        stars = "⭐" * (1 + int(confidence_pct >= 65) + int(confidence_pct >= 75))
+                        
+                        # Format market name
+                        market_name = market.replace('_', ' ').title()
+                        
+                        message += f"• {market_name}: {market_pred['prediction']} "
+                        message += f"{stars} ({confidence_pct:.1f}%)\n"
+                    
+                    message += "\n"
                     
                     # Store prediction for later result checking
                     self.predictions[str(pred['match_id'])] = pred
+                
+                # Add footer
+                message += "🤖 Powered by ML | Past performance ≠ Future results\n"
+                message += "📱 Join @bamzz_cryptoalpha for more predictions!"
                 
                 await self.send_message_with_retry(message)
             else:
@@ -512,8 +608,12 @@ class BettingBot:
 
     async def process_matches(self):
         """Process matches and send predictions"""
-        while True:
-            try:
+        try:
+            # Force immediate prediction on startup
+            logger.info("Making initial predictions...")
+            await self.make_predictions()
+            
+            while True:
                 now = datetime.now(pytz.UTC)
                 
                 # Make predictions at midnight UTC
@@ -530,9 +630,9 @@ class BettingBot:
                 
                 await asyncio.sleep(60)  # Check every minute otherwise
                 
-            except Exception as e:
-                logger.error(f"Error in process_matches: {e}")
-                await asyncio.sleep(60)
+        except Exception as e:
+            logger.error(f"Error in process_matches: {e}")
+            await asyncio.sleep(60)
 
     async def run(self):
         """Run the bot"""
