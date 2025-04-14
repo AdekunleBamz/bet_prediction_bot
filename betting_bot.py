@@ -568,14 +568,25 @@ class BettingBot:
                 current_message = f"🎯 Premium Predictions {current_date} 🎯\n\n"
                 current_message += "⚠️ Betting Tips:\n"
                 current_message += "• Bet responsibly\n"
-                current_message += "• Stake 1-2% per game\n\n"
+                current_message += "• Stake 1-2% per game\n"
+                current_message += "• Always verify odds before betting\n\n"
                 
                 for idx, pred in enumerate(selected_predictions, 1):
                     match_message = f"{idx}. {pred['sport'].upper()}\n"
                     match_message += f"🏟 {pred['league']}\n"
                     match_message += f"⚔️ {pred['home_team']} vs {pred['away_team']}\n"
-                    match_message += f"🕒 {pred['time'].strftime('%H:%M')} UTC\n\n"
-                    match_message += "📊 Best Picks:\n"
+                    
+                    # Format date and time
+                    match_date = pred['time'].strftime('%Y-%m-%d')
+                    match_time = pred['time'].strftime('%H:%M')
+                    match_message += f"📅 Date: {match_date}\n"
+                    match_message += f"⏰ Time: {match_time} UTC\n"
+                    
+                    # Add odds if available
+                    if 'home_odds' in pred and 'away_odds' in pred:
+                        match_message += f"📈 Odds: H {pred['home_odds']:.2f} | A {pred['away_odds']:.2f}\n"
+                    
+                    match_message += "\n📊 Best Picks:\n"
                     
                     # Sort predictions by confidence
                     sorted_predictions = sorted(
@@ -594,6 +605,9 @@ class BettingBot:
                     
                     match_message += "\n"
                     
+                    # Store prediction for later result checking
+                    self.predictions[str(pred['match_id'])] = pred
+                    
                     # Check if adding this match would exceed Telegram's limit
                     if len(current_message + match_message) > 4000:
                         messages.append(current_message)
@@ -603,7 +617,8 @@ class BettingBot:
                 
                 # Add footer to last message
                 footer = "\n🤖 AI-Powered Predictions | Past ≠ Future\n"
-                footer += "📱 Join @bamzz_cryptoalpha for more picks!"
+                footer += "📱 Join @bamzz_cryptoalpha for more picks!\n"
+                footer += "🔄 Next update: 00:00 UTC"
                 
                 if len(current_message + footer) <= 4000:
                     current_message += footer
